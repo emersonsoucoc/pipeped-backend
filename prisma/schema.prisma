@@ -22,8 +22,10 @@ model Professor {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  disciplinas ProfessorDisciplina[]
-  grades      Grade[]
+  disciplinas    ProfessorDisciplina[]
+  grades         Grade[]
+  substituicoes  Substituicao[] @relation("Substituto")
+  ausencias      Substituicao[] @relation("Ausente")
 
   @@map("professores")
 }
@@ -143,4 +145,35 @@ model Grade {
   @@index([segmentoId])
   @@index([turmaId])
   @@map("grades")
+}
+
+// ─── SUBSTITUIÇÕES (registro de evento) ──────────────────────────────
+model Substituicao {
+  id              String    @id @default(uuid())
+  data            DateTime  @map("data")
+  substitutoId    String    @map("substituto_id")
+  ausenteId       String    @map("ausente_id")
+  escolaId        String    @map("escola_id")
+  escolaNome      String    @map("escola_nome")
+  turmaId         String?   @map("turma_id")
+  turmaNome       String?   @map("turma_nome")
+  segmentoNome    String?   @map("segmento_nome")
+  disciplina      String
+  horarios        Json      @map("horarios")       // [{horario:"07:00"},{horario:"07:50"}]
+  totalAulas      Int       @map("total_aulas")
+  totalHoras      Float     @map("total_horas")
+  motivo          String?                            // falta, licença, atestado, etc.
+  observacoes     String?
+  registradoPor   String?   @map("registrado_por")
+  status          String    @default("registrado")   // registrado | aprovado
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  substituto  Professor @relation("Substituto", fields: [substitutoId], references: [id], onDelete: Cascade)
+  ausente     Professor @relation("Ausente", fields: [ausenteId], references: [id], onDelete: Cascade)
+
+  @@index([substitutoId])
+  @@index([ausenteId])
+  @@index([data])
+  @@index([escolaId])
+  @@map("substituicoes")
 }

@@ -722,6 +722,155 @@ app.delete('/api/grades/:id', async (req, res) => {
   }
 });
 
+// =====================================================================
+// SUBSTITUIÇÕES
+// =====================================================================
+
+// GET /api/substituicoes?escola_id=xxx&mes=2026-04&substituto_id=xxx
+app.get('/api/substituicoes', async (req, res) => {
+  try {
+    const { escola_id, substituto_id, ausente_id, mes } = req.query;
+    const where = {};
+    if (escola_id) where.escolaId = escola_id;
+    if (substituto_id) where.substitutoId = substituto_id;
+    if (ausente_id) where.ausenteId = ausente_id;
+    if (mes) {
+      const [y, m] = mes.split('-').map(Number);
+      where.data = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) };
+    }
+
+    const subs = await prisma.substituicao.findMany({
+      where,
+      include: { substituto: true, ausente: true },
+      orderBy: { data: 'desc' },
+    });
+    res.json(subs.map(s => ({
+      id: s.id,
+      data: s.data.toISOString().slice(0, 10),
+      substituto_id: s.substitutoId,
+      substituto_nome: s.substituto.nome,
+      substituto_initials: s.substituto.initials,
+      substituto_color: s.substituto.color,
+      ausente_id: s.ausenteId,
+      ausente_nome: s.ausente.nome,
+      escola_id: s.escolaId,
+      escola_nome: s.escolaNome,
+      turma_id: s.turmaId,
+      turma_nome: s.turmaNome,
+      segmento_nome: s.segmentoNome,
+      disciplina: s.disciplina,
+      horarios: s.horarios,
+      total_aulas: s.totalAulas,
+      total_horas: s.totalHoras,
+      motivo: s.motivo,
+      observacoes: s.observacoes,
+      registrado_por: s.registradoPor,
+      status: s.status,
+    })));
+  } catch (err) {
+    console.error('GET /api/substituicoes error:', err);
+    res.status(500).json({ error: 'Erro ao buscar substituições' });
+  }
+});
+
+// GET /api/substituicoes/resumo — total de horas por professor substituto (para folha)
+app.get('/api/substituicoes/resumo', async (req, res) => {
+  try {
+    const { escola_id, mes } = req.query;
+    const where = {};
+    if (escola_id) where.escolaId = escola_id;
+    if (mes) {
+      const [y, m] = mes.split('-').map(Number);
+      where.data = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) };
+    }
+
+    const subs = await prisma.substituicao.findMany({
+      where,
+      include: { substituto: true },
+    });
+
+    const byProf = {};
+    for (const s of subs) {
+      if (!byProf[s.substitutoId]) {
+        byProf[s.substitutoId] = {
+          professor_id: s.substitutoId,
+          professor_nome: s.substituto.nome,
+          total_aulas: 0,
+          total_horas: 0,
+          registros: 0,
+        };
+      }
+      byProf[s.substitutoId].total_aulas += s.totalAulas;
+      byProf[s.substitutoId].total_horas += s.totalHoras;
+      byProf[s.substitutoId].registros += 1;
+    }
+    res.json(Object.values(byProf));
+  } catch (err) {
+    console.error('GET /api/substituicoes/resumo error:', err);
+    res.status(500).json({ error: 'Erro ao gerar resumo' });
+  }
+});
+
+// POST /api/substituicoes
+app.post('/api/substituicoes', async (req, res) => {
+  try {
+    const {
+      data, substituto_id, ausente_id, escola_id, escola_nome,
+      turma_id, turma_nome, segmento_nome, disciplina,
+      horarios, motivo, observacoes, registrado_por,
+    } = req.body;
+    if (!data || !substituto_id || !ausente_id || !disciplina || !horarios?.length) {
+      return res.status(400).json({ error: 'Campos obrigatórios: data, substituto_id, ausente_id, disciplina, horarios' });
+    }
+
+    const totalAulas = horarios.length;
+    const totalHoras = +(totalAulas * 50 / 60).toFixed(2);
+
+    const sub = await prisma.substituicao.create({
+      data: {
+        data: new Date(data),
+        substitutoId: substituto_id,
+        ausenteId: ausente_id,
+        escolaId: escola_id || '',
+        escolaNome: escola_nome || '',
+        turmaId: turma_id || null,
+        turmaNome: turma_nome || null,
+        segmentoNome: segmento_nome || null,
+        disciplina,
+        horarios,
+        totalAulas,
+        totalHoras,
+        motivo: motivo || null,
+        observacoes: observacoes || null,
+        registradoPor: registrado_por || null,
+      },
+      include: { substituto: true, ausente: true },
+    });
+    res.status(201).json({
+      id: sub.id,
+      data: sub.data.toISOString().slice(0, 10),
+      substituto_nome: sub.substituto.nome,
+      ausente_nome: sub.ausente.nome,
+      total_aulas: sub.totalAulas,
+      total_horas: sub.totalHoras,
+    });
+  } catch (err) {
+    console.error('POST /api/substituicoes error:', err);
+    res.status(500).json({ error: 'Erro ao registrar substituição' });
+  }
+});
+
+// DELETE /api/substituicoes/:id
+app.delete('/api/substituicoes/:id', async (req, res) => {
+  try {
+    await prisma.substituicao.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/substituicoes/:id error:', err);
+    res.status(500).json({ error: 'Erro ao excluir substituição' });
+  }
+});
+
 // ─── START SERVER ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 PIPEPED API running on port ${PORT}`);

@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── PROFESSORES ─────────────────────────────────────────────────────
+model Professor {
+  id         String   @id @default(uuid())
+  nome       String
+  initials   String
+  color      String   @default("#6366F1")
+  cpf        String?
+  telefone   String?
+  email      String?
+  titulacao  String   @default("graduacao")
+  ativo      Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  disciplinas ProfessorDisciplina[]
+  grades      Grade[]
+
+  @@map("professores")
+}
+
+// ─── DISCIPLINAS ─────────────────────────────────────────────────────
+model Disciplina {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  ativa     Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  professores ProfessorDisciplina[]
+
+  @@map("disciplinas")
+}
+
+// ─── RELAÇÃO N:N PROFESSOR <-> DISCIPLINA ────────────────────────────
+model ProfessorDisciplina {
+  professorId  String     @map("professor_id")
+  disciplinaId String     @map("disciplina_id")
+  professor    Professor  @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  disciplina   Disciplina @relation(fields: [disciplinaId], references: [id], onDelete: Cascade)
+
+  @@id([professorId, disciplinaId])
+  @@map("professor_disciplinas")
+}
+
+// ─── GRADES ESCOLARES ────────────────────────────────────────────────
+model Grade {
+  id             String    @id @default(uuid())
+  professorId    String    @map("professor_id")
+  disciplina     String
+  escolaId       String    @map("escola_id")
+  escolaNome     String    @map("escola_nome")
+  totalHoras     Float     @map("total_horas")
+  totalAulas     Int       @map("total_aulas")
+  status         String    @default("aguardando_rh")
+  gradeArray     Json      @map("grade_array")
+  dataSubmissao  DateTime  @default(now()) @map("data_submissao")
+  enviadoPor     String?   @map("enviado_por")
+  aprovadoPor    String?   @map("aprovado_por")
+  dataAprovacao  DateTime? @map("data_aprovacao")
+  observacoes    String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  professor Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+
+  @@index([professorId])
+  @@index([status])
+  @@index([escolaId])
+  @@map("grades")
+}

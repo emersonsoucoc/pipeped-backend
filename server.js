@@ -25,7 +25,6 @@ app.get('/api/professores', async (req, res) => {
       include: { disciplinas: { include: { disciplina: true } } },
       orderBy: { nome: 'asc' },
     });
-    // Flatten disciplinas para array de nomes (compatível com frontend)
     const result = professores.map(p => ({
       id: p.id,
       nome: p.nome,
@@ -80,7 +79,6 @@ app.post('/api/professores', async (req, res) => {
       },
     });
 
-    // Vincular disciplinas se fornecidas
     if (disciplinas && disciplinas.length) {
       for (const discNome of disciplinas) {
         const disc = await prisma.disciplina.findUnique({ where: { nome: discNome } });
@@ -123,11 +121,8 @@ app.put('/api/professores/:id', async (req, res) => {
       },
     });
 
-    // Atualizar disciplinas se fornecidas
     if (disciplinas !== undefined) {
-      // Remove todas as vinculações
       await prisma.professorDisciplina.deleteMany({ where: { professorId: professor.id } });
-      // Recria
       for (const discNome of disciplinas) {
         const disc = await prisma.disciplina.findUnique({ where: { nome: discNome } });
         if (disc) {
@@ -170,7 +165,6 @@ app.delete('/api/professores/:id', async (req, res) => {
 // DISCIPLINAS
 // =====================================================================
 
-// GET /api/disciplinas
 app.get('/api/disciplinas', async (req, res) => {
   try {
     const disciplinas = await prisma.disciplina.findMany({
@@ -189,7 +183,6 @@ app.get('/api/disciplinas', async (req, res) => {
   }
 });
 
-// POST /api/disciplinas
 app.post('/api/disciplinas', async (req, res) => {
   try {
     const { nome } = req.body;
@@ -197,7 +190,6 @@ app.post('/api/disciplinas', async (req, res) => {
     const existing = await prisma.disciplina.findUnique({ where: { nome } });
     if (existing) {
       if (!existing.ativa) {
-        // Reativar
         await prisma.disciplina.update({ where: { id: existing.id }, data: { ativa: true } });
         return res.json({ ...existing, ativa: true });
       }
@@ -211,7 +203,6 @@ app.post('/api/disciplinas', async (req, res) => {
   }
 });
 
-// DELETE /api/disciplinas/:id (soft delete)
 app.delete('/api/disciplinas/:id', async (req, res) => {
   try {
     await prisma.disciplina.update({
@@ -226,21 +217,231 @@ app.delete('/api/disciplinas/:id', async (req, res) => {
 });
 
 // =====================================================================
-// GRADES ESCOLARES
+// SEGMENTOS  (Infantil, Fund.1, Fund.2, Médio)
 // =====================================================================
 
-// GET /api/grades — lista com professor
+// GET /api/segmentos?escola_id=xxx
+app.get('/api/segmentos', async (req, res) => {
+  try {
+    const where = { ativo: true };
+    if (req.query.escola_id) where.escolaId = req.query.escola_id;
+    const segmentos = await prisma.segmento.findMany({
+      where,
+      include: {
+        series: {
+          where: { ativa: true },
+          orderBy: { ordem: 'asc' },
+          include: {
+            turmas: {
+              where: { ativa: true },
+              orderBy: { nome: 'asc' },
+            },
+          },
+        },
+      },
+      orderBy: { ordem: 'asc' },
+    });
+    res.json(segmentos.map(s => ({
+      id: s.id,
+      nome: s.nome,
+      escola_id: s.escolaId,
+      ordem: s.ordem,
+      series: s.series.map(sr => ({
+        id: sr.id,
+        nome: sr.nome,
+        ordem: sr.ordem,
+        turmas: sr.turmas.map(t => ({
+          id: t.id,
+          nome: t.nome,
+          turno: t.turno,
+        })),
+      })),
+    })));
+  } catch (err) {
+    console.error('GET /api/segmentos error:', err);
+    res.status(500).json({ error: 'Erro ao buscar segmentos' });
+  }
+});
+
+// POST /api/segmentos — criar segmento
+app.post('/api/segmentos', async (req, res) => {
+  try {
+    const { nome, escola_id, ordem } = req.body;
+    if (!nome || !escola_id) return res.status(400).json({ error: 'nome e escola_id são obrigatórios' });
+    const seg = await prisma.segmento.create({
+      data: { nome, escolaId: escola_id, ordem: ordem || 0 },
+    });
+    res.status(201).json({ id: seg.id, nome: seg.nome, escola_id: seg.escolaId, ordem: seg.ordem, series: [] });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'Segmento já existe nesta escola' });
+    console.error('POST /api/segmentos error:', err);
+    res.status(500).json({ error: 'Erro ao criar segmento' });
+  }
+});
+
+// PUT /api/segmentos/:id
+app.put('/api/segmentos/:id', async (req, res) => {
+  try {
+    const { nome, ordem } = req.body;
+    const seg = await prisma.segmento.update({
+      where: { id: req.params.id },
+      data: { ...(nome && { nome }), ...(ordem !== undefined && { ordem }) },
+    });
+    res.json(seg);
+  } catch (err) {
+    console.error('PUT /api/segmentos/:id error:', err);
+    res.status(500).json({ error: 'Erro ao atualizar segmento' });
+  }
+});
+
+// DELETE /api/segmentos/:id (soft)
+app.delete('/api/segmentos/:id', async (req, res) => {
+  try {
+    await prisma.segmento.update({ where: { id: req.params.id }, data: { ativo: false } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/segmentos/:id error:', err);
+    res.status(500).json({ error: 'Erro ao excluir segmento' });
+  }
+});
+
+// =====================================================================
+// SÉRIES  (1º ano, 2º ano, Grupo 3, etc.)
+// =====================================================================
+
+// GET /api/series?segmento_id=xxx
+app.get('/api/series', async (req, res) => {
+  try {
+    const where = { ativa: true };
+    if (req.query.segmento_id) where.segmentoId = req.query.segmento_id;
+    const series = await prisma.serie.findMany({
+      where,
+      include: {
+        turmas: { where: { ativa: true }, orderBy: { nome: 'asc' } },
+        segmento: true,
+      },
+      orderBy: { ordem: 'asc' },
+    });
+    res.json(series.map(sr => ({
+      id: sr.id,
+      nome: sr.nome,
+      segmento_id: sr.segmentoId,
+      segmento_nome: sr.segmento.nome,
+      ordem: sr.ordem,
+      turmas: sr.turmas.map(t => ({ id: t.id, nome: t.nome, turno: t.turno })),
+    })));
+  } catch (err) {
+    console.error('GET /api/series error:', err);
+    res.status(500).json({ error: 'Erro ao buscar séries' });
+  }
+});
+
+// POST /api/series
+app.post('/api/series', async (req, res) => {
+  try {
+    const { nome, segmento_id, ordem } = req.body;
+    if (!nome || !segmento_id) return res.status(400).json({ error: 'nome e segmento_id são obrigatórios' });
+    const serie = await prisma.serie.create({
+      data: { nome, segmentoId: segmento_id, ordem: ordem || 0 },
+    });
+    res.status(201).json({ id: serie.id, nome: serie.nome, segmento_id: serie.segmentoId, ordem: serie.ordem, turmas: [] });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'Série já existe neste segmento' });
+    console.error('POST /api/series error:', err);
+    res.status(500).json({ error: 'Erro ao criar série' });
+  }
+});
+
+// DELETE /api/series/:id (soft)
+app.delete('/api/series/:id', async (req, res) => {
+  try {
+    await prisma.serie.update({ where: { id: req.params.id }, data: { ativa: false } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/series/:id error:', err);
+    res.status(500).json({ error: 'Erro ao excluir série' });
+  }
+});
+
+// =====================================================================
+// TURMAS  (A, B, C)
+// =====================================================================
+
+// GET /api/turmas?serie_id=xxx
+app.get('/api/turmas', async (req, res) => {
+  try {
+    const where = { ativa: true };
+    if (req.query.serie_id) where.serieId = req.query.serie_id;
+    const turmas = await prisma.turma.findMany({
+      where,
+      include: { serie: { include: { segmento: true } } },
+      orderBy: { nome: 'asc' },
+    });
+    res.json(turmas.map(t => ({
+      id: t.id,
+      nome: t.nome,
+      turno: t.turno,
+      serie_id: t.serieId,
+      serie_nome: t.serie.nome,
+      segmento_id: t.serie.segmentoId,
+      segmento_nome: t.serie.segmento.nome,
+    })));
+  } catch (err) {
+    console.error('GET /api/turmas error:', err);
+    res.status(500).json({ error: 'Erro ao buscar turmas' });
+  }
+});
+
+// POST /api/turmas
+app.post('/api/turmas', async (req, res) => {
+  try {
+    const { nome, serie_id, turno } = req.body;
+    if (!nome || !serie_id) return res.status(400).json({ error: 'nome e serie_id são obrigatórios' });
+    const turma = await prisma.turma.create({
+      data: { nome, serieId: serie_id, turno: turno || 'matutino' },
+    });
+    res.status(201).json({ id: turma.id, nome: turma.nome, turno: turma.turno, serie_id: turma.serieId });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'Turma já existe nesta série' });
+    console.error('POST /api/turmas error:', err);
+    res.status(500).json({ error: 'Erro ao criar turma' });
+  }
+});
+
+// DELETE /api/turmas/:id (soft)
+app.delete('/api/turmas/:id', async (req, res) => {
+  try {
+    await prisma.turma.update({ where: { id: req.params.id }, data: { ativa: false } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/turmas/:id error:', err);
+    res.status(500).json({ error: 'Erro ao excluir turma' });
+  }
+});
+
+// =====================================================================
+// GRADES ESCOLARES (atualizado com segmento/turma/extras)
+// =====================================================================
+
+// GET /api/grades — lista com professor, segmento, turma
 app.get('/api/grades', async (req, res) => {
   try {
-    const { escola_id, status, professor_id } = req.query;
+    const { escola_id, status, professor_id, segmento_id, turma_id } = req.query;
     const where = {};
     if (escola_id) where.escolaId = escola_id;
     if (status) where.status = status;
     if (professor_id) where.professorId = professor_id;
+    if (segmento_id) where.segmentoId = segmento_id;
+    if (turma_id) where.turmaId = turma_id;
 
     const grades = await prisma.grade.findMany({
       where,
-      include: { professor: true },
+      include: {
+        professor: true,
+        segmento: true,
+        serie: true,
+        turma: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
     res.json(grades.map(g => ({
@@ -252,10 +453,21 @@ app.get('/api/grades', async (req, res) => {
       disciplina: g.disciplina,
       escola_id: g.escolaId,
       escola_nome: g.escolaNome,
+      segmento_id: g.segmentoId,
+      segmento_nome: g.segmento?.nome || null,
+      serie_id: g.serieId,
+      serie_nome: g.serie?.nome || null,
+      turma_id: g.turmaId,
+      turma_nome: g.turma?.nome || null,
+      turma_turno: g.turma?.turno || null,
       total_horas: g.totalHoras,
       total_aulas: g.totalAulas,
       status: g.status,
       grade_array: g.gradeArray,
+      horas_extras: g.horasExtras,
+      coord_pedagogica: g.coordPedagogica,
+      substituicoes: g.substituicoes,
+      obs_extras: g.obsExtras,
       data_submissao: g.dataSubmissao.toISOString().slice(0, 10),
       enviado_por: g.enviadoPor,
       aprovado_por: g.aprovadoPor,
@@ -268,10 +480,84 @@ app.get('/api/grades', async (req, res) => {
   }
 });
 
-// POST /api/grades — criar
+// GET /api/grades/resumo-folha — Resumo consolidado por professor para folha
+app.get('/api/grades/resumo-folha', async (req, res) => {
+  try {
+    const { escola_id } = req.query;
+    const where = { status: 'aprovado' };
+    if (escola_id) where.escolaId = escola_id;
+
+    const grades = await prisma.grade.findMany({
+      where,
+      include: { professor: true, segmento: true, turma: true },
+      orderBy: { professor: { nome: 'asc' } },
+    });
+
+    // Agrupar por professor
+    const byProf = {};
+    for (const g of grades) {
+      if (!byProf[g.professorId]) {
+        byProf[g.professorId] = {
+          professor_id: g.professorId,
+          professor_nome: g.professor.nome,
+          professor_initials: g.professor.initials,
+          professor_color: g.professor.color,
+          titulacao: g.professor.titulacao,
+          total_aulas: 0,
+          total_horas: 0,
+          horas_extras: 0,
+          coord_pedagogica: 0,
+          substituicoes: 0,
+          carga_total_semanal: 0,
+          disciplinas: [],
+          escolas: [],
+          grades: [],
+        };
+      }
+      const prof = byProf[g.professorId];
+      prof.total_aulas += g.totalAulas;
+      prof.total_horas += g.totalHoras;
+      prof.horas_extras += g.horasExtras;
+      prof.coord_pedagogica += g.coordPedagogica;
+      prof.substituicoes += g.substituicoes;
+      if (!prof.disciplinas.includes(g.disciplina)) prof.disciplinas.push(g.disciplina);
+      if (!prof.escolas.includes(g.escolaNome)) prof.escolas.push(g.escolaNome);
+      prof.grades.push({
+        id: g.id,
+        disciplina: g.disciplina,
+        escola_nome: g.escolaNome,
+        segmento_nome: g.segmento?.nome || '',
+        turma_nome: g.turma?.nome || '',
+        total_aulas: g.totalAulas,
+        total_horas: g.totalHoras,
+        horas_extras: g.horasExtras,
+        coord_pedagogica: g.coordPedagogica,
+        substituicoes: g.substituicoes,
+      });
+    }
+
+    // Calcular carga total
+    const result = Object.values(byProf).map(p => ({
+      ...p,
+      carga_total_semanal: +(p.total_horas + p.horas_extras + p.coord_pedagogica + p.substituicoes).toFixed(2),
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('GET /api/grades/resumo-folha error:', err);
+    res.status(500).json({ error: 'Erro ao gerar resumo da folha' });
+  }
+});
+
+// POST /api/grades — criar (com segmento/turma/extras)
 app.post('/api/grades', async (req, res) => {
   try {
-    const { professor_id, disciplina, escola_id, escola_nome, total_horas, total_aulas, grade_array, enviado_por } = req.body;
+    const {
+      professor_id, disciplina, escola_id, escola_nome,
+      segmento_id, serie_id, turma_id,
+      total_horas, total_aulas, grade_array, enviado_por,
+      horas_extras, coord_pedagogica, substituicoes, obs_extras,
+    } = req.body;
     if (!professor_id || !disciplina || !escola_id || !grade_array) {
       return res.status(400).json({ error: 'Campos obrigatórios: professor_id, disciplina, escola_id, grade_array' });
     }
@@ -303,13 +589,20 @@ app.post('/api/grades', async (req, res) => {
         disciplina,
         escolaId: escola_id,
         escolaNome: escola_nome || '',
+        segmentoId: segmento_id || null,
+        serieId: serie_id || null,
+        turmaId: turma_id || null,
         totalHoras: total_horas || (grade_array.length * 50 / 60),
         totalAulas: total_aulas || grade_array.length,
         gradeArray: grade_array,
         enviadoPor: enviado_por || null,
+        horasExtras: horas_extras || 0,
+        coordPedagogica: coord_pedagogica || 0,
+        substituicoes: substituicoes || 0,
+        obsExtras: obs_extras || null,
         status: 'aguardando_rh',
       },
-      include: { professor: true },
+      include: { professor: true, segmento: true, serie: true, turma: true },
     });
     res.status(201).json({
       id: grade.id,
@@ -318,10 +611,20 @@ app.post('/api/grades', async (req, res) => {
       disciplina: grade.disciplina,
       escola_id: grade.escolaId,
       escola_nome: grade.escolaNome,
+      segmento_id: grade.segmentoId,
+      segmento_nome: grade.segmento?.nome || null,
+      serie_id: grade.serieId,
+      serie_nome: grade.serie?.nome || null,
+      turma_id: grade.turmaId,
+      turma_nome: grade.turma?.nome || null,
       total_horas: grade.totalHoras,
       total_aulas: grade.totalAulas,
       status: grade.status,
       grade_array: grade.gradeArray,
+      horas_extras: grade.horasExtras,
+      coord_pedagogica: grade.coordPedagogica,
+      substituicoes: grade.substituicoes,
+      obs_extras: grade.obsExtras,
       data_submissao: grade.dataSubmissao.toISOString().slice(0, 10),
       enviado_por: grade.enviadoPor,
     });
@@ -331,21 +634,32 @@ app.post('/api/grades', async (req, res) => {
   }
 });
 
-// PUT /api/grades/:id — atualizar
+// PUT /api/grades/:id — atualizar (com extras)
 app.put('/api/grades/:id', async (req, res) => {
   try {
-    const { disciplina, escola_id, escola_nome, total_horas, total_aulas, grade_array, status, enviado_por } = req.body;
+    const {
+      disciplina, escola_id, escola_nome, segmento_id, serie_id, turma_id,
+      total_horas, total_aulas, grade_array, status, enviado_por,
+      horas_extras, coord_pedagogica, substituicoes, obs_extras,
+    } = req.body;
     const grade = await prisma.grade.update({
       where: { id: req.params.id },
       data: {
         ...(disciplina && { disciplina }),
         ...(escola_id && { escolaId: escola_id }),
         ...(escola_nome && { escolaNome: escola_nome }),
+        ...(segmento_id !== undefined && { segmentoId: segmento_id || null }),
+        ...(serie_id !== undefined && { serieId: serie_id || null }),
+        ...(turma_id !== undefined && { turmaId: turma_id || null }),
         ...(total_horas && { totalHoras: total_horas }),
         ...(total_aulas && { totalAulas: total_aulas }),
         ...(grade_array && { gradeArray: grade_array }),
         ...(status && { status }),
         ...(enviado_por && { enviadoPor: enviado_por }),
+        ...(horas_extras !== undefined && { horasExtras: horas_extras }),
+        ...(coord_pedagogica !== undefined && { coordPedagogica: coord_pedagogica }),
+        ...(substituicoes !== undefined && { substituicoes: substituicoes }),
+        ...(obs_extras !== undefined && { obsExtras: obs_extras }),
       },
     });
     res.json(grade);

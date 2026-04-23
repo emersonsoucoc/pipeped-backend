@@ -50,6 +50,58 @@ model ProfessorDisciplina {
   @@map("professor_disciplinas")
 }
 
+// ─── SEGMENTOS (Infantil, Fund.1, Fund.2, Médio) ────────────────────
+model Segmento {
+  id        String   @id @default(uuid())
+  nome      String
+  escolaId  String   @map("escola_id")
+  ordem     Int      @default(0)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  series Serie[]
+  grades Grade[]
+
+  @@unique([escolaId, nome])
+  @@index([escolaId])
+  @@map("segmentos")
+}
+
+// ─── SÉRIES (1º ano, 2º ano, Grupo 3, etc.) ─────────────────────────
+model Serie {
+  id         String   @id @default(uuid())
+  nome       String
+  segmentoId String   @map("segmento_id")
+  ordem      Int      @default(0)
+  ativa      Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  segmento Segmento @relation(fields: [segmentoId], references: [id], onDelete: Cascade)
+  turmas   Turma[]
+  grades   Grade[]
+
+  @@unique([segmentoId, nome])
+  @@index([segmentoId])
+  @@map("series")
+}
+
+// ─── TURMAS (A, B, C — vinculadas a série) ───────────────────────────
+model Turma {
+  id       String   @id @default(uuid())
+  nome     String
+  serieId  String   @map("serie_id")
+  turno    String   @default("matutino")  // matutino | vespertino | integral
+  ativa    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  serie  Serie   @relation(fields: [serieId], references: [id], onDelete: Cascade)
+  grades Grade[]
+
+  @@unique([serieId, nome])
+  @@index([serieId])
+  @@map("turmas")
+}
+
 // ─── GRADES ESCOLARES ────────────────────────────────────────────────
 model Grade {
   id             String    @id @default(uuid())
@@ -57,10 +109,20 @@ model Grade {
   disciplina     String
   escolaId       String    @map("escola_id")
   escolaNome     String    @map("escola_nome")
+  segmentoId     String?   @map("segmento_id")
+  serieId        String?   @map("serie_id")
+  turmaId        String?   @map("turma_id")
   totalHoras     Float     @map("total_horas")
   totalAulas     Int       @map("total_aulas")
   status         String    @default("aguardando_rh")
   gradeArray     Json      @map("grade_array")
+
+  // ─── EXTRAS (para fechamento de folha) ─────────
+  horasExtras      Float   @default(0) @map("horas_extras")
+  coordPedagogica  Float   @default(0) @map("coord_pedagogica")
+  substituicoes    Float   @default(0) @map("substituicoes")
+  obsExtras        String? @map("obs_extras")
+
   dataSubmissao  DateTime  @default(now()) @map("data_submissao")
   enviadoPor     String?   @map("enviado_por")
   aprovadoPor    String?   @map("aprovado_por")
@@ -69,10 +131,15 @@ model Grade {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  professor Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  professor Professor  @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  segmento  Segmento?  @relation(fields: [segmentoId], references: [id], onDelete: SetNull)
+  serie     Serie?     @relation(fields: [serieId], references: [id], onDelete: SetNull)
+  turma     Turma?     @relation(fields: [turmaId], references: [id], onDelete: SetNull)
 
   @@index([professorId])
   @@index([status])
   @@index([escolaId])
+  @@index([segmentoId])
+  @@index([turmaId])
   @@map("grades")
 }

@@ -871,6 +871,117 @@ app.delete('/api/substituicoes/:id', async (req, res) => {
   }
 });
 
+// =====================================================================
+// FECHAMENTO DE FOLHA (ciclo mensal, corte dia 25)
+// =====================================================================
+
+// GET /api/fechamentos?ciclo=2026-04&escola_id=xxx
+app.get('/api/fechamentos', async (req, res) => {
+  try {
+    const { ciclo, escola_id, status } = req.query;
+    const where = {};
+    if (ciclo) where.ciclo = ciclo;
+    if (escola_id) where.escolaId = escola_id;
+    if (status) where.status = status;
+
+    const fechamentos = await prisma.fechamentoFolha.findMany({
+      where,
+      orderBy: { dataEnvio: 'desc' },
+    });
+    res.json(fechamentos.map(f => ({
+      id: f.id,
+      ciclo: f.ciclo,
+      escola_id: f.escolaId,
+      escola_nome: f.escolaNome,
+      segmento_id: f.segmentoId,
+      segmento_nome: f.segmentoNome,
+      enviado_por: f.enviadoPor,
+      data_envio: f.dataEnvio.toISOString(),
+      status: f.status,
+      snapshot: f.snapshot,
+      obs_rh: f.obsRh,
+      aprovado_por: f.aprovadoPor,
+      data_aprovacao: f.dataAprovacao?.toISOString(),
+    })));
+  } catch (err) {
+    console.error('GET /api/fechamentos error:', err);
+    res.status(500).json({ error: 'Erro ao buscar fechamentos' });
+  }
+});
+
+// POST /api/fechamentos — coordenador envia espelho para RH
+app.post('/api/fechamentos', async (req, res) => {
+  try {
+    const { ciclo, escola_id, escola_nome, segmento_id, segmento_nome, enviado_por, snapshot } = req.body;
+    if (!ciclo || !escola_id || !snapshot) {
+      return res.status(400).json({ error: 'Campos obrigatórios: ciclo, escola_id, snapshot' });
+    }
+
+    // Verificar se já existe fechamento para este ciclo/escola/segmento
+    const existing = await prisma.fechamentoFolha.findFirst({
+      where: { ciclo, escolaId: escola_id, segmentoId: segmento_id || null },
+    });
+    if (existing && existing.status !== 'devolvido') {
+      return res.status(409).json({ error: 'Fechamento já enviado para este ciclo. Status: ' + existing.status });
+    }
+
+    // Se devolvido, atualizar em vez de criar novo
+    if (existing && existing.status === 'devolvido') {
+      const updated = await prisma.fechamentoFolha.update({
+        where: { id: existing.id },
+        data: { snapshot, enviadoPor: enviado_por || '', status: 'enviado', dataEnvio: new Date(), obsRh: null },
+      });
+      return res.json({ id: updated.id, status: 'reenviado' });
+    }
+
+    const fechamento = await prisma.fechamentoFolha.create({
+      data: {
+        ciclo,
+        escolaId: escola_id,
+        escolaNome: escola_nome || '',
+        segmentoId: segmento_id || null,
+        segmentoNome: segmento_nome || null,
+        enviadoPor: enviado_por || '',
+        snapshot,
+      },
+    });
+    res.status(201).json({ id: fechamento.id, status: 'enviado' });
+  } catch (err) {
+    console.error('POST /api/fechamentos error:', err);
+    res.status(500).json({ error: 'Erro ao criar fechamento' });
+  }
+});
+
+// PATCH /api/fechamentos/:id/aprovar — RH aprova
+app.patch('/api/fechamentos/:id/aprovar', async (req, res) => {
+  try {
+    const { aprovado_por } = req.body;
+    const f = await prisma.fechamentoFolha.update({
+      where: { id: req.params.id },
+      data: { status: 'aprovado_rh', aprovadoPor: aprovado_por, dataAprovacao: new Date() },
+    });
+    res.json({ id: f.id, status: f.status });
+  } catch (err) {
+    console.error('PATCH /api/fechamentos/:id/aprovar error:', err);
+    res.status(500).json({ error: 'Erro ao aprovar fechamento' });
+  }
+});
+
+// PATCH /api/fechamentos/:id/devolver — RH devolve
+app.patch('/api/fechamentos/:id/devolver', async (req, res) => {
+  try {
+    const { obs_rh } = req.body;
+    const f = await prisma.fechamentoFolha.update({
+      where: { id: req.params.id },
+      data: { status: 'devolvido', obsRh: obs_rh },
+    });
+    res.json({ id: f.id, status: f.status });
+  } catch (err) {
+    console.error('PATCH /api/fechamentos/:id/devolver error:', err);
+    res.status(500).json({ error: 'Erro ao devolver fechamento' });
+  }
+});
+
 // ─── START SERVER ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 PIPEPED API running on port ${PORT}`);

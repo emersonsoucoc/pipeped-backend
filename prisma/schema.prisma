@@ -177,3 +177,27 @@ model Substituicao {
   @@index([escolaId])
   @@map("substituicoes")
 }
+
+// ─── FECHAMENTO DE FOLHA (ciclo mensal, corte dia 25) ────────────────
+model FechamentoFolha {
+  id             String    @id @default(uuid())
+  ciclo          String                             // "2026-04" = 26/Mar-25/Abr
+  escolaId       String    @map("escola_id")
+  escolaNome     String    @map("escola_nome")
+  segmentoId     String?   @map("segmento_id")
+  segmentoNome   String?   @map("segmento_nome")
+  enviadoPor     String    @map("enviado_por")
+  dataEnvio      DateTime  @default(now()) @map("data_envio")
+  status         String    @default("enviado")       // enviado | aprovado_rh | devolvido
+  snapshot       Json      @map("snapshot")           // cópia dos dados no momento do envio
+  obsRh          String?   @map("obs_rh")             // observação do RH se devolver
+  aprovadoPor    String?   @map("aprovado_por")
+  dataAprovacao  DateTime? @map("data_aprovacao")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@unique([ciclo, escolaId, segmentoId])
+  @@index([ciclo])
+  @@index([escolaId])
+  @@index([status])
+  @@map("fechamentos_folha")
+}

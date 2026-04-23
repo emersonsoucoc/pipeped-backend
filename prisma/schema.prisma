@@ -16,8 +16,9 @@ model Professor {
   cpf        String?
   telefone   String?
   email      String?
-  titulacao  String   @default("graduacao")
-  ativo      Boolean  @default(true)
+  titulacao      String   @default("graduacao")
+  valorHoraAula  Float    @default(0) @map("valor_hora_aula")
+  ativo          Boolean  @default(true)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

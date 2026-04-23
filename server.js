@@ -34,6 +34,7 @@ app.get('/api/professores', async (req, res) => {
       telefone: p.telefone || '',
       email: p.email || '',
       titulacao: p.titulacao,
+      valor_hora_aula: p.valorHoraAula || 0,
       disciplinas: p.disciplinas.map(pd => pd.disciplina.nome),
     }));
     res.json(result);
@@ -64,7 +65,7 @@ app.get('/api/professores/:id', async (req, res) => {
 // POST /api/professores — criar
 app.post('/api/professores', async (req, res) => {
   try {
-    const { nome, initials, color, cpf, telefone, email, titulacao, disciplinas } = req.body;
+    const { nome, initials, color, cpf, telefone, email, titulacao, valor_hora_aula, disciplinas } = req.body;
     if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
 
     const professor = await prisma.professor.create({
@@ -76,6 +77,7 @@ app.post('/api/professores', async (req, res) => {
         telefone: telefone || null,
         email: email || null,
         titulacao: titulacao || 'graduacao',
+        valorHoraAula: valor_hora_aula || 0,
       },
     });
 
@@ -107,7 +109,7 @@ app.post('/api/professores', async (req, res) => {
 // PUT /api/professores/:id — atualizar
 app.put('/api/professores/:id', async (req, res) => {
   try {
-    const { nome, initials, color, cpf, telefone, email, titulacao, disciplinas } = req.body;
+    const { nome, initials, color, cpf, telefone, email, titulacao, valor_hora_aula, disciplinas } = req.body;
     const professor = await prisma.professor.update({
       where: { id: req.params.id },
       data: {
@@ -118,6 +120,7 @@ app.put('/api/professores/:id', async (req, res) => {
         telefone: telefone ?? undefined,
         email: email ?? undefined,
         ...(titulacao && { titulacao }),
+        ...(valor_hora_aula !== undefined && { valorHoraAula: valor_hora_aula }),
       },
     });
 
@@ -503,12 +506,15 @@ app.get('/api/grades/resumo-folha', async (req, res) => {
           professor_initials: g.professor.initials,
           professor_color: g.professor.color,
           titulacao: g.professor.titulacao,
+          valor_hora_aula: g.professor.valorHoraAula || 0,
           total_aulas: 0,
           total_horas: 0,
           horas_extras: 0,
           coord_pedagogica: 0,
           substituicoes: 0,
           carga_total_semanal: 0,
+          custo_semanal: 0,
+          custo_mensal: 0,
           disciplinas: [],
           escolas: [],
           grades: [],
@@ -537,10 +543,16 @@ app.get('/api/grades/resumo-folha', async (req, res) => {
     }
 
     // Calcular carga total
-    const result = Object.values(byProf).map(p => ({
-      ...p,
-      carga_total_semanal: +(p.total_horas + p.horas_extras + p.coord_pedagogica + p.substituicoes).toFixed(2),
-    }));
+    const result = Object.values(byProf).map(p => {
+      const carga = +(p.total_horas + p.horas_extras + p.coord_pedagogica + p.substituicoes).toFixed(2);
+      const custoSemanal = +(carga * p.valor_hora_aula).toFixed(2);
+      return {
+        ...p,
+        carga_total_semanal: carga,
+        custo_semanal: custoSemanal,
+        custo_mensal: +(custoSemanal * 4.5).toFixed(2), // ~4.5 semanas/mês
+      };
+    });
 
     res.json(result);
   } catch (err) {

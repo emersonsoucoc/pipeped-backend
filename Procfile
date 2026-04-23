@@ -1,1 +1,1 @@
-web: npx prisma migrate deploy && npm start
+web: npx prisma db push --skip-generate && npm start
